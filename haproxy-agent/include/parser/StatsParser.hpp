@@ -9,7 +9,7 @@
 class StatsParser {
 
     public:
-        static std::vector<HAProxuStats> parse(
+        static std::vector<HAProxyStats> parse(
             const std::string& raw
         );
 };

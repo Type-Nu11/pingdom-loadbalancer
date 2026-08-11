@@ -4,7 +4,7 @@
 #include <string>
 
 
-class HAProxuStats {
+class HAProxyStats {
 
     public:
         std::string proxyName;
