@@ -3,24 +3,41 @@
 
 #include <string>
 
-class HAProxyClient {
 
-    private:
-        int socketFd;
+class HAProxyClient
+{
 
-    public:
-        HAProxyClient();
+private:
 
-        ~HAProxyClient();
+    int socketFd;
 
-        bool connect();
+    std::string socketPath;
 
-        std::string execute(
-            const std::string& command
-        );
 
-        std::string getInfo();
-        std::string getStats();
+public:
+
+    HAProxyClient(
+        const std::string& path = "/tmp/haproxy.sock"
+    );
+
+
+    ~HAProxyClient();
+
+
+    bool connect();
+
+
+    std::string execute(
+        const std::string& command
+    );
+
+
+    std::string getInfo();
+
+
+    std::string getStats();
+
 };
+
 
 #endif

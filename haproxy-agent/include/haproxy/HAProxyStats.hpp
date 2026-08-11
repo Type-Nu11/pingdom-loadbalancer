@@ -10,6 +10,6 @@ class HAProxuStats {
         std::string proxyName;
         std::string serverName;
         std::string status;
-}
+};
 
 #endif

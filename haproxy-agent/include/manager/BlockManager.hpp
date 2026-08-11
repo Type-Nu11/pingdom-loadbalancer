@@ -11,7 +11,6 @@ class BlockManager {
         std::vector<BlockEntry> blockedEntries;
 
     public:
-        
         void add(
             const BlockEntry& entry
         );

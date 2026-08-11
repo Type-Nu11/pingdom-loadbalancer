@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "haproxy/HaproxyStats.hpp"
+#include "haproxy/HAProxyStats.hpp"
 
 class StatsParser {
 
@@ -13,3 +13,5 @@ class StatsParser {
             const std::string& raw
         );
 };
+
+#endif

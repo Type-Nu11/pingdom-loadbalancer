@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "haproxy/HaproxyClient.hpp"
+#include "haproxy/HAProxyClient.hpp"
 
 int main() {
     std::cout << "- HAProxy Agent -" << std::endl;
