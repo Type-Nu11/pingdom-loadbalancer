@@ -1,7 +1,7 @@
 #ifndef HEALTHMONITOR_HPP
 #define HEALTHMONITOR_HPP
 
-#include "haproxy/HAProxyClient.hpp"
+class HAProxyClient;
 
 class HealthMonitor
 {

@@ -4,12 +4,14 @@
 #include <string>
 #include <vector>
 
-#include "haproxy/HaproxyStats.hpp"
+#include "haproxy/HAProxyStats.hpp"
 
 class StatsParser {
 
     public:
-        static std::vector<HAProxuStats> parse(
+        static std::vector<HAProxyStats> parse(
             const std::string& raw
         );
 };
+
+#endif

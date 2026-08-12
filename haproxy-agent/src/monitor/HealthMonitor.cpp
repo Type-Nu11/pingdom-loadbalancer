@@ -2,7 +2,8 @@
 #include <thread>
 #include <chrono>
 
-#include "include/monitor/HealthMonitor.hpp"
+#include "monitor/HealthMonitor.hpp"
+#include "haproxy/HAProxyClient.hpp"
 
 
 HealthMonitor::HealthMonitor(
