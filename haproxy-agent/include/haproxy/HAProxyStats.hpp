@@ -9,6 +9,7 @@ class HAProxyStats {
     public:
         std::string proxyName;
         std::string serverName;
+        std::string address;
         std::string status;
 };
 

@@ -1,0 +1,23 @@
+services:
+  haproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: haproxy
+
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "127.0.0.1:8404:8404"
+
+    volumes:
+    - ./haproxy/acl:/usr/local/etc/haproxy/acl:ro
+    - ./runtime:/var/run/haproxy
+
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

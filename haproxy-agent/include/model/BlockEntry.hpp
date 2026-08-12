@@ -8,6 +8,6 @@ struct BlockEntry {
         std::string ipAddress;
         std::string reason;
         std::string timestamp;
-}
+};
 
 #endif
