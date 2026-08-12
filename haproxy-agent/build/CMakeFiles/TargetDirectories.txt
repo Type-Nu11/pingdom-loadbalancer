@@ -1,3 +1,0 @@
-/Users/junhyeok/Documents/Narsha/L4_Proxy/haproxy-agent/build/CMakeFiles/haproxy-agent.dir
-/Users/junhyeok/Documents/Narsha/L4_Proxy/haproxy-agent/build/CMakeFiles/edit_cache.dir
-/Users/junhyeok/Documents/Narsha/L4_Proxy/haproxy-agent/build/CMakeFiles/rebuild_cache.dir
