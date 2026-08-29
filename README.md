@@ -13,16 +13,16 @@ HAProxy 기반의 프록시 구성과, HAProxy Runtime API를 통해 상태를 �
 
 ## Project Status
 
-현재 **SNAPSHOT 개발 단계**입니다.
+현재 **GA(General Availability)** 단계입니다.
 
-프록시 정책과 에이전트 인터페이스를 검증하고 있으며, 안정화 이전까지
-구성, 정책 및 제공 결과가 예고 없이 변경될 수 있습니다.
+안정화된 서비스를 제공하며, 구성, 정책 및 제공 결과의 변경은 Release와
+변경 이력을 통해 관리합니다.
 
 | Item | Status |
 |---|---|
-| Development | `In Progress` |
-| Release | `SNAPSHOT` |
-| Stability | `Experimental` |
+| Development | `Generally Available` |
+| Release | `GA` |
+| Stability | `Stable` |
 
 ## Repository Role
 
@@ -250,8 +250,8 @@ haproxy -c -f haproxy/haproxy.cfg
 
 실제 구조를 기준으로 주요 디렉터리와 파일만 설명합니다.
 
-`StatsParser`와 `BlockManager`는 현재 빌드 대상에 포함되어 있지 않으며,
-안정화 이전까지 설계 단계로 유지합니다.
+`StatsParser`와 `BlockManager`는 현재 기본 빌드 대상에 포함되어 있지 않으며,
+별도 구성으로 관리합니다.
 
 ## Related Repositories
 
@@ -271,11 +271,10 @@ haproxy -c -f haproxy/haproxy.cfg
 
 ## Release and Compatibility
 
-현재 버전은 안정화 이전의 SNAPSHOT 버전입니다.
+현재 버전은 GA(General Availability) 단계입니다.
 
-정식 버전과의 호환성을 보장하지 않습니다.
+호환성에 영향을 주는 변경사항은 Release와 관련 문서를 통해 안내합니다.
 변경사항은 저장소의 Release 또는 변경 이력을 기준으로 확인합니다.
-안정화 이후 별도의 버전 정책을 적용할 예정입니다.
 
 ## License
 
