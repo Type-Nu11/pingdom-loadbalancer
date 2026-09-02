@@ -1,3 +1,6 @@
+<img width="7680" height="4320" alt="image" src="https://github.com/user-attachments/assets/4fa26896-83d1-4045-8534-9d29c599f8c7" />
+
+
 ## Overview
 
 이 저장소는 Pingdom 프로젝트의 **Load Balancer 영역**을 관리합니다.
