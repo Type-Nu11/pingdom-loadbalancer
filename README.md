@@ -134,13 +134,27 @@ Docker 기반 실행 환경을 제공합니다. 로컬에 HAProxy가 없어도 �
 docker compose up -d --build
 ```
 
-프록시는 호스트의 `80` 포트로 요청을 수신하며, 통계 페이지는 루프백에 한해
+프록시는 호스트의 `80`, `443` 포트로 요청을 수신합니다. HTTP 요청은 HTTPS로
+리다이렉트하며, 통계 페이지는 루프백에 한해
 `127.0.0.1:8404`로 노출됩니다.
 
 프록시 구성 파일은 볼륨 마운트가 아니라 이미지 빌드 시 `COPY`로 포함됩니다.
 따라서 `haproxy/haproxy.cfg`를 수정한 경우 재빌드가 필요합니다.
 
 차단 IP 목록은 `haproxy/acl` 디렉터리를 읽기 전용으로 마운트합니다.
+
+### TLS 인증서
+
+HAProxy가 읽을 수 있는 PEM bundle을 배포 서버에 준비합니다. PEM에는 인증서 체인과
+private key가 함께 있어야 하며 저장소에는 커밋하지 않습니다. 기본 경로는
+`haproxy/certs`이고, 저장소 밖 경로를 사용할 때는 `TLS_CERTIFICATE_DIR`로 지정합니다.
+
+```bash
+TLS_CERTIFICATE_DIR=/etc/pingdom/tls docker compose up -d --build
+```
+
+인증서가 없거나 올바르지 않으면 HAProxy 설정 검증과 컨테이너 시작이 실패합니다.
+인증서 갱신 후에는 새 파일을 읽도록 HAProxy 컨테이너를 재생성합니다.
 
 ## Getting Started
 
