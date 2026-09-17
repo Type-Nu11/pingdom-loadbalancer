@@ -1,20 +1,43 @@
+# Pingdom Edge Proxy
+
 <img width="7680" height="4320" alt="image" src="https://github.com/user-attachments/assets/4fa26896-83d1-4045-8534-9d29c599f8c7" />
 
 
 ## Overview
 
-이 저장소는 Pingdom 프로젝트의 **Load Balancer 영역**을 관리합니다.
+Pingdom 웹 인스턴스의 진입점에서 TLS 트래픽을 받아 세 도메인으로 전달하는 HAProxy 기반 엣지 프록시입니다.
 
-외부 클라이언트 요청을 가장 먼저 수신하는 엣지 계층으로,
-트래픽 제어와 접근 차단을 수행한 뒤 Pingdom Backend Server로 요청을 분배합니다.
+- `www.typenull.xyz`
+- `api.typenull.xyz`
+- `origin.typenull.xyz`
 
-HAProxy 기반의 프록시 구성과, HAProxy Runtime API를 통해 상태를 조회하고
-제어하는 C++ 운영 에이전트(HAProxy Agent)로 구성됩니다.
+HAProxy는 TCP L4 프록시로 동작하며 TLS ClientHello의 SNI를 사용해 backend를 선택합니다. TLS를 복호화하지 않는 Passthrough 구조이므로 실제 TLS 인증서와 TLS handshake는 각 backend가 처리합니다.
 
-애플리케이션 비즈니스 로직을 직접 처리하지 않으며, 요청 전달 경로와
-서비스 가용성을 관리하는 역할을 담당합니다.
+## Responsibilities
 
-## Project Status
+- 웹 인스턴스의 `443` 포트에서 외부 TCP 연결 수신
+- SNI 기반 도메인별 backend 라우팅
+- 클라이언트 IP 기준 연결 Rate Limit
+- TCP health check 및 장애 backend 제외
+- PROXY protocol v2를 통한 원본 IP 전달
+- HAProxy Runtime API를 사용하는 Rust 상태 에이전트 제공
+
+현재 Rate Limit은 HAProxy 인스턴스의 모든 도메인에 공유되는 stick table 기준입니다. 여러 HAProxy 인스턴스 전체의 글로벌 제한이 필요하면 이후 `peers` 동기화 또는 외부 Rate Limit 저장소를 추가해야 합니다.
+
+## Architecture
+
+```text
+Client
+  │ TCP 3-way handshake
+  ▼
+HAProxy :443
+  │ SNI routing + connection rate limit
+  ├── www.typenull.xyz   ── PROXY v2 ──> www-openresty:443
+  ├── api.typenull.xyz   ── PROXY v2 ──> api-openresty:443
+  └── origin.typenull.xyz ─ PROXY v2 ──> origin-openresty:443
+
+Rust Agent ── Unix Socket ──> HAProxy Runtime API
+```
 
 현재 **GA(General Availability)** 단계입니다.
 
@@ -47,96 +70,51 @@ HAProxy 기반의 프록시 구성과, HAProxy Runtime API를 통해 상태를 �
 - 경로 단위 타임아웃 정책 적용
 - HAProxy Runtime API 기반 상태 조회
 
-### Not Included
-
-- 애플리케이션 비즈니스 로직 처리
-- 사용자 인증 및 권한 관리
-- 데이터 저장소 운영 및 관리
-- 서비스 배포 파이프라인 관리
-
-## Key Capabilities
-
-- **트래픽 분배**: Round Robin 방식으로 Backend Server 노드에 요청을 분배합니다.
-- **요청 속도 제한**: Stick Table 기반으로 클라이언트 IP당 10초 200회를 초과하는 요청을 `429`로 차단합니다.
-- **정적 접근 차단**: ACL 목록에 등록된 IP의 요청을 `403`으로 차단합니다.
-- **헬스 체크**: 5초 주기로 백엔드 상태를 확인하고 장애 노드를 분배 대상에서 제외합니다.
-- **경로 단위 타임아웃**: 장시간 처리 API에 한해 기본 타임아웃을 개별 확장합니다.
-- **운영 에이전트**: Unix Socket으로 HAProxy Runtime API에 접속해 상태 정보를 조회합니다.
-
-## Technology and Tools
-
-| Category | Technology |
-|---|---|
-| Proxy | HAProxy 3.2 (Alpine) |
-| Mode | HTTP |
-| Agent | C++20 |
-| Build | CMake 3.20 |
-| Control | HAProxy Runtime API (Unix Socket) |
-| Delivery | Docker / Docker Compose |
-
----
-
-# Architecture
-
-Pingdom Load Balancer는
-요청 처리 경로와 운영 제어 경로를 분리한
-
-**Edge Proxy + Control Agent Architecture**
-
-구조를 사용합니다.
-
-```text
-Client
-    │
-    │ HTTP :80
-    ▼
-HAProxy Edge (frontend http_in)
-    │
-    ├──── Rate Limit        Stick Table / 429
-    ├──── Static IP Block   ACL List / 403
-    ├──── X-Forwarded-For
-    └──── Path Timeout Override
-    │
-    ▼
-Backend Pool (spring_cluster)
-    │
-    ├──── Balance      Round Robin
-    ├──── Health Check GET / expect 200
-    │
-    ▼
-Pingdom Backend Server
-
-
-Control Plane
-    │
-    ▼
-Runtime API (Unix Socket)
-    ▲
-    │ show info / show stat
-    │
-HAProxy Agent
-    │
-    ├──── HAProxyClient   Socket 통신
-    ├──── HealthMonitor   상태 폴링
-    ├──── StatsParser     CSV 파싱
-    └──── BlockManager    차단 목록 관리
-
-Statistics
-    │
-    ▼
-listen stats  127.0.0.1:8404 /stats
-```
+각 요청은 Client와 HAProxy 사이, HAProxy와 backend 사이에서 별도의 TCP 연결을 가집니다. backend는 PROXY protocol v2를 지원하고 원본 주소를 신뢰하도록 구성해야 합니다.
 
 ## Docker
-
-Docker 기반 실행 환경을 제공합니다. 로컬에 HAProxy가 없어도 컨테이너로 프록시를 실행할 수 있습니다.
-
-빌드 및 실행:
 
 ```bash
 docker compose up -d --build
 ```
 
+HAProxy는 호스트의 `443` 포트를 사용하고, 통계 페이지는 `127.0.0.1:8404/stats`로만 노출합니다. Runtime API 소켓은 `haproxy-runtime` Docker volume으로 Rust Agent와 공유합니다.
+
+Backend 서비스는 같은 Docker network(`pingdom-edge`)에 다음 DNS 이름으로 연결되어야 합니다.
+
+| Hostname | Domain | Port |
+|---|---|---:|
+| `www-openresty` | `www.typenull.xyz` | 443 |
+| `api-openresty` | `api.typenull.xyz` | 443 |
+| `origin-openresty` | `origin.typenull.xyz` | 443 |
+
+실제 OpenResty 또는 Origin 배포 환경에서 이 이름을 사용할 수 없다면 [haproxy/haproxy.cfg](haproxy/haproxy.cfg)의 backend 주소를 해당 DNS 이름으로 변경해야 합니다.
+
+## TLS and Real IP
+
+HAProxy는 현재 TLS Passthrough를 사용합니다. 따라서 인증서는 HAProxy가 아니라 backend에서 관리합니다. HAProxy가 전달하는 PROXY protocol v2를 OpenResty에서 활성화해야 합니다.
+
+OpenResty 예시:
+
+```nginx
+listen 443 ssl proxy_protocol;
+
+set_real_ip_from <haproxy-network-cidr>;
+real_ip_header proxy_protocol;
+```
+
+HAProxy에서 TLS를 종료하는 구성이 필요해지면 `mode tcp`를 HTTP/TLS frontend로 분리하고 인증서와 SNI 정책을 별도로 추가해야 합니다.
+
+## Rate Limit
+
+현재 설정은 모든 도메인에 공유되는 IP별 연결 Rate Limit을 사용합니다.
+
+```text
+10초 동안 IP당 100개 초과 연결 거부
+```
+
+
+L4 Passthrough 구조에서는 HTTP 요청 수가 아니라 TCP 연결 수를 제한합니다. 여러 HAProxy 노드 전체에 동일한 한도를 적용하려면 노드 간 stick table 동기화가 필요합니다.
 프록시는 호스트의 `80`, `443` 포트로 요청을 수신합니다. HTTP 요청은 HTTPS로
 리다이렉트하며, 통계 페이지는 루프백에 한해
 `127.0.0.1:8404`로 노출됩니다.
@@ -163,106 +141,64 @@ TLS_CERTIFICATE_DIR=/etc/pingdom/tls docker compose up -d --build
 
 이 저장소를 확인하거나 실행하기 위해 필요한 최소 절차입니다.
 
-### Requirements
+## Rust Agent
 
-- Docker
-- Docker Compose
-- HAProxy 3.2 (로컬 실행 시)
-- CMake 3.20 이상 (에이전트 빌드 시)
-- C++20 지원 컴파일러
+Rust Agent는 HAProxy Runtime API Unix Socket에 연결해 `show info`와 `show stat`을 5초마다 조회합니다.
 
-### Setup
+로컬 빌드:
 
 ```bash
-git clone https://github.com/Type-Nu11/pingdom-loadbalancer
-cd pingdom-loadbalancer
+cd rust-agent
+cargo run -- --socket /var/run/haproxy/admin.sock --interval 5
 ```
 
-TLS 인증서 및 접근 차단 목록 등 환경별 자원을 준비합니다.
+Docker 실행 시에는 Compose가 Runtime API socket을 자동으로 공유합니다.
 
-### Usage
+## Verification
 
-프록시 실행:
+HAProxy 설정 문법을 확인합니다.
 
 ```bash
-docker compose up -d --build
+docker run --rm \
+  -v "$PWD/haproxy:/usr/local/etc/haproxy:ro" \
+  haproxy:3.2-alpine \
+  haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
 ```
 
-로컬 실행:
+Rust Agent를 확인합니다.
 
 ```bash
-haproxy -f haproxy/haproxy.cfg
+cargo check --manifest-path rust-agent/Cargo.toml
 ```
 
-에이전트 빌드 및 실행:
+실행 후 통계를 확인합니다.
 
 ```bash
-cmake -S haproxy-agent -B haproxy-agent/build
-cmake --build haproxy-agent/build
-
-./haproxy-agent/build/haproxy-agent
+curl http://127.0.0.1:8404/stats
 ```
 
-에이전트는 기본적으로 `/tmp/haproxy.sock` 경로의 Runtime API 소켓에 접속합니다.
-
-### Configuration
-
-설정에 필요한 항목은 프록시 구성 파일 및 접근 제어 자원을 기준으로 관리합니다.
-
-- `haproxy/haproxy.cfg`
-- `haproxy/acl/blocked_ip.lst`
-- `compose.yml`
-
-실제 인증서, 통계 페이지 계정, 백엔드 주소 및 운영 환경 정보는 저장소에 커밋하지 않습니다.
-
-### Verification
-
-저장소 변경사항은 다음 방법으로 검증합니다.
+SNI 라우팅은 실제 인증서와 backend가 준비된 환경에서 확인합니다.
 
 ```bash
-haproxy -c -f haproxy/haproxy.cfg
+openssl s_client -connect 127.0.0.1:443 -servername www.typenull.xyz
+openssl s_client -connect 127.0.0.1:443 -servername api.typenull.xyz
+openssl s_client -connect 127.0.0.1:443 -servername origin.typenull.xyz
 ```
-
-검증 방식이 여러 개인 경우 목적별로 구분합니다.
-
-| Verification | Purpose |
-|---|---|
-| `haproxy -c -f haproxy/haproxy.cfg` | 프록시 구성 문법 검증 |
-| `docker compose up -d --build` | 서비스 실행 환경 검증 |
-| `127.0.0.1:8404/stats` | 백엔드 상태 및 트래픽 확인 |
-| `haproxy-agent` 실행 | Runtime API 연동 확인 |
 
 ## Repository Structure
 
 ```text
 .
 ├── README.md
-├── Dockerfile                          # HAProxy 이미지 빌드 정의
-├── compose.yml                         # 서비스 실행 구성
+├── Dockerfile
+├── compose.yml
 ├── haproxy
-│   ├── haproxy.cfg                     # 프록시 정책 및 백엔드 구성
-│   ├── acl
-│   │   └── blocked_ip.lst              # 정적 차단 IP 목록
-│   ├── maps
-│   │   └── blocked.map                 # 맵 기반 차단 정의
-│   └── certs                           # TLS 인증서 자원
-└── haproxy-agent
-    ├── CMakeLists.txt                  # 에이전트 빌드 정의
-    ├── include
-    │   ├── haproxy                     # Runtime API 클라이언트 및 모델 정의
-    │   ├── model                       # 차단 항목 모델 정의
-    │   ├── monitor                     # 상태 모니터 정의
-    │   └── parser                      # 통계 파서 정의
+│   └── haproxy.cfg
+└── rust-agent
+    ├── Cargo.toml
+    ├── Dockerfile
     └── src
-        ├── main.cpp                    # 에이전트 실행 진입점
-        ├── haproxy
-        │   └── HAProxyClient.cpp       # Unix Socket 기반 명령 실행
-        ├── monitor
-        │   └── HealthMonitor.cpp       # 주기적 상태 폴링
-        ├── parser
-        │   └── StatsParser.cpp         # 통계 CSV 파싱
-        └── manager
-            └── BlockManager.cpp        # 차단 목록 관리
+        └── main.rs
 ```
 
 실제 구조를 기준으로 주요 디렉터리와 파일만 설명합니다.
@@ -295,10 +231,6 @@ haproxy -c -f haproxy/haproxy.cfg
 
 ## License
 
-이 프로젝트는 MIT License를 따릅니다.
+MIT License. 자세한 내용은 [LICENSE](LICENSE)를 참고하세요.
 
-자세한 내용은 [LICENSE](LICENSE) 파일을 참고하세요.
-
----
-
-Part of Pingdom
+Part of Pingdom.
