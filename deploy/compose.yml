@@ -1,0 +1,21 @@
+services:
+  haproxy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: pingdom-haproxy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "127.0.0.1:8404:8404"
+    volumes:
+      - haproxy-runtime:/var/run/haproxy
+    networks:
+      - edge
+
+volumes:
+  haproxy-runtime:
+
+networks:
+  edge:
+    name: pingdom-edge
