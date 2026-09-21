@@ -1,0 +1,93 @@
+[proxy]
+name = "typenull-edge"
+worker_threads = 0
+graceful_shutdown = "30s"
+
+[[listeners]]
+name = "tls-entry"
+address = "0.0.0.0:443"
+protocol = "tcp"
+sni_inspect_timeout = "5s"
+
+[rate_limit]
+enabled = true
+key = "source_ip"
+window = "10s"
+max_connections = 100
+action = "reject"
+
+[proxy_protocol]
+enabled = true
+version = "v2"
+
+[[routes]]
+hostname = "www.typenull.xyz"
+backend = "www-openresty"
+
+[[routes]]
+hostname = "api.typenull.xyz"
+backend = "api-openresty"
+
+[[routes]]
+hostname = "origin.typenull.xyz"
+backend = "origin-openresty"
+
+[[backends]]
+name = "www-openresty"
+balance = "round_robin"
+
+[backends.health_check]
+protocol = "tcp"
+interval = "5s"
+timeout = "2s"
+rise = 2
+fall = 3
+
+[[backends.servers]]
+name = "www-1"
+address = "www-openresty"
+port = 443
+weight = 1
+
+[[backends]]
+name = "api-openresty"
+balance = "round_robin"
+
+[backends.health_check]
+protocol = "tcp"
+interval = "5s"
+timeout = "2s"
+rise = 2
+fall = 3
+
+[[backends.servers]]
+name = "api-1"
+address = "api-openresty"
+port = 443
+weight = 1
+
+[[backends]]
+name = "origin-openresty"
+balance = "round_robin"
+
+[backends.health_check]
+protocol = "tcp"
+interval = "5s"
+timeout = "2s"
+rise = 2
+fall = 3
+
+[[backends.servers]]
+name = "origin-1"
+address = "origin-openresty"
+port = 443
+weight = 1
+
+[admin]
+enabled = true
+address = "127.0.0.1:8404"
+
+[observability]
+log_level = "info"
+access_log = true
+metrics = true

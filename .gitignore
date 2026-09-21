@@ -4,7 +4,7 @@
 .temp
 temp/*
 build/*
-
+target/
 # TLS private keys and certificate bundles are deployment secrets.
 haproxy/certs/*
 !haproxy/certs/.gitkeep
