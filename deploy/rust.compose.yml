@@ -1,0 +1,10 @@
+services:
+  proxy-server:
+    build:
+      context: ..
+      dockerfile: deploy/rust.Dockerfile
+    container_name: typenull-edge-rust
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ${TLS_CERT_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro

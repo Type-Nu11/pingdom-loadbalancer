@@ -2,4 +2,6 @@
 resolver = "2"
 members = [
     "crates/proxy-config",
+    "crates/proxy-ratelimit",
+    "crates/proxy-server",
 ]
