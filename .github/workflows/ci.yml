@@ -42,3 +42,63 @@ jobs:
           docker compose -f tests/openresty/compose.yml config --quiet
       - name: Reject forged X-Real-IP from untrusted peer
         run: sh tests/openresty/check.sh
+
+  deploy:
+    name: Deploy to EC2
+    needs: [rust, openresty]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: production-edge
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      DEPLOY_TLS_CERT_DIR: ${{ vars.DEPLOY_TLS_CERT_DIR }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Missing DEPLOY_HOST secret}"
+          : "${DEPLOY_USER:?Missing DEPLOY_USER secret}"
+          : "${DEPLOY_SSH_KEY:?Missing DEPLOY_SSH_KEY secret}"
+          : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS secret}"
+          : "${DEPLOY_DIR:?Missing DEPLOY_DIR variable}"
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$DEPLOY_DIR" =~ ^/[A-Za-z0-9._/-]+$ && "$DEPLOY_DIR" != / && "$DEPLOY_DIR" != *'/..'* ]]
+          if [[ -n "$DEPLOY_TLS_CERT_DIR" ]]; then
+            [[ "$DEPLOY_TLS_CERT_DIR" =~ ^/[A-Za-z0-9._/-]+$ && "$DEPLOY_TLS_CERT_DIR" != / && "$DEPLOY_TLS_CERT_DIR" != *'/..'* ]]
+          fi
+          DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]]
+      - name: Install SSH credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/deploy_key" > /dev/null
+      - name: Transfer and deploy release
+        shell: bash
+        run: |
+          set -euo pipefail
+          port="${DEPLOY_SSH_PORT:-22}"
+          archive="$RUNNER_TEMP/typenull-edge-${GITHUB_SHA}.tar.gz"
+          remote_archive="/tmp/typenull-edge-${GITHUB_SHA}.tar.gz"
+          tar -czf "$archive" Cargo.toml Cargo.lock crates configs/edge.toml deploy/rust.Dockerfile deploy/rust.compose.yml
+          ssh_opts=(-i "$RUNNER_TEMP/deploy_key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=10)
+          scp "${ssh_opts[@]}" -P "$port" "$archive" "$DEPLOY_USER@$DEPLOY_HOST:$remote_archive"
+          ssh "${ssh_opts[@]}" -p "$port" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash -s -- $DEPLOY_DIR $remote_archive ${DEPLOY_TLS_CERT_DIR:-/etc/letsencrypt}" < deploy/remote-deploy.sh

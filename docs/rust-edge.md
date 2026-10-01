@@ -42,3 +42,13 @@ The current server handles ordinary HTTP/1.1 and HTTP/2 requests over TLS. WebSo
 ## CI
 
 `.github/workflows/ci.yml` checks formatting, tests, Clippy and a release build with Rust 1.98.0 on pushes and pull requests. A separate job runs the isolated OpenResty real-IP trust test. CI does not deploy the proxy, access production certificates, or benchmark the 1,200/10s threshold.
+
+## EC2 deployment preparation
+
+After CI succeeds on a push to `main`, the deployment job can transfer a source archive over SSH and build/restart the Rust proxy on the Ubuntu EC2 instance. It is **disabled** until the repository variable `DEPLOY_ENABLED` is set to `true`. Pull requests and non-`main` pushes never deploy. Configure the `production` GitHub Environment with an approval rule before enabling it.
+
+Set these GitHub Actions secrets when the EC2 instance is ready: `DEPLOY_HOST` (public DNS or reachable IPv4), `DEPLOY_USER`, `DEPLOY_SSH_KEY` (private key), `DEPLOY_KNOWN_HOSTS` (pinned server host-key line), and optionally `DEPLOY_SSH_PORT` (defaults to 22). For a nonstandard SSH port, the known-hosts entry must use `[host]:port`. Set `DEPLOY_DIR` as an absolute directory path in GitHub Actions variables; the SSH user needs permission to create it and access Docker. Do not put the key or host-key value in the repository. Direct SSH requires an address; AWS Systems Manager would be a different deployment transport that could avoid one.
+
+The VM needs Docker Compose, network access to build dependencies, the existing TLS certificate tree, and OpenResty on loopback ports 8081/8082. `deploy/rust.compose.yml` bind-mounts `${TLS_CERT_DIR:-/etc/letsencrypt}` read-only into the container, so certificates remain on the host volume and are not copied by CI. The source archive is unpacked under `DEPLOY_DIR/releases/`. If certificates are elsewhere, set the GitHub Actions variable `DEPLOY_TLS_CERT_DIR` to that absolute host path; it defaults to `/etc/letsencrypt`.
+
+**Do not enable automatic deployment yet** if the old HAProxy still owns port 443. The current Compose service has no health check or automatic rollback; first validate a manual cutover and choose a rollback procedure. The job only checks that the container remains running briefly, not that live traffic is healthy.
