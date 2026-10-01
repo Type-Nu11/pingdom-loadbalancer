@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.98.0
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
+      - name: Format
+        run: cargo +1.98.0 fmt --all -- --check
+      - name: Test
+        run: cargo +1.98.0 test --workspace --locked
+      - name: Clippy
+        run: cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
+      - name: Release build
+        run: cargo +1.98.0 build --release --workspace --locked
+
+  openresty:
+    name: OpenResty real-IP trust
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate Compose files
+        run: |
+          docker compose -f deploy/rust.compose.yml config --quiet
+          docker compose -f tests/openresty/compose.yml config --quiet
+      - name: Reject forged X-Real-IP from untrusted peer
+        run: sh tests/openresty/check.sh

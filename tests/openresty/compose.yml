@@ -1,0 +1,31 @@
+name: l4-proxy-openresty-test
+
+services:
+  openresty:
+    image: openresty/openresty:alpine
+    volumes:
+      - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+    networks:
+      isolated:
+        ipv4_address: 172.30.78.20
+
+  trusted-probe:
+    image: alpine:3.23
+    command: sleep infinity
+    networks:
+      isolated:
+        ipv4_address: 172.30.78.10
+
+  untrusted-probe:
+    image: alpine:3.23
+    command: sleep infinity
+    networks:
+      isolated:
+        ipv4_address: 172.30.78.11
+
+networks:
+  isolated:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.78.0/24

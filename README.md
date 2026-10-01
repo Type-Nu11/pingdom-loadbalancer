@@ -1,5 +1,7 @@
 # Pingdom Edge Proxy
 
+> 새 Rust HTTPS 프록시의 구성과 실행 방법은 [Rust edge proxy](docs/rust-edge.md)를 참고하세요. 아래 내용은 기존 HAProxy 배포 구성을 설명합니다.
+
 <img width="7680" height="4320" alt="image" src="https://github.com/user-attachments/assets/4fa26896-83d1-4045-8534-9d29c599f8c7" />
 
 
