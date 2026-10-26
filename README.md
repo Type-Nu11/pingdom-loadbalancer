@@ -1,45 +1,14 @@
-# Pingdom Edge Proxy
-
-> 새 Rust HTTPS 프록시의 구성과 실행 방법은 [Rust edge proxy](docs/rust-edge.md)를 참고하세요. 아래 내용은 기존 HAProxy 배포 구성을 설명합니다.
-
 <img width="7680" height="4320" alt="image" src="https://github.com/user-attachments/assets/4fa26896-83d1-4045-8534-9d29c599f8c7" />
-
 
 ## Overview
 
-Pingdom 웹 인스턴스의 진입점에서 TLS 트래픽을 받아 세 도메인으로 전달하는 HAProxy 기반 엣지 프록시입니다.
+이 저장소는 Pingdom 서비스의 **Rust HTTPS 엣지 프록시**와 기존 HAProxy 구성을 관리합니다.
 
-- `www.typenull.xyz`
-- `api.typenull.xyz`
-- `origin.typenull.xyz`
+Rust 프록시는 `www.typenull.xyz`의 TLS를 종료하고 같은 호스트의 OpenResty로 요청을 전달합니다.
+`X-Client-Type: App` 요청은 `8082`, 그 외 요청은 `8081`로 전달합니다.
+구성과 실행 조건은 [Rust edge proxy](docs/rust-edge.md)를 기준으로 확인합니다.
 
-HAProxy는 TCP L4 프록시로 동작하며 TLS ClientHello의 SNI를 사용해 backend를 선택합니다. TLS를 복호화하지 않는 Passthrough 구조이므로 실제 TLS 인증서와 TLS handshake는 각 backend가 처리합니다.
-
-## Responsibilities
-
-- 웹 인스턴스의 `443` 포트에서 외부 TCP 연결 수신
-- SNI 기반 도메인별 backend 라우팅
-- 클라이언트 IP 기준 연결 Rate Limit
-- TCP health check 및 장애 backend 제외
-- PROXY protocol v2를 통한 원본 IP 전달
-- HAProxy Runtime API를 사용하는 Rust 상태 에이전트 제공
-
-현재 Rate Limit은 HAProxy 인스턴스의 모든 도메인에 공유되는 stick table 기준입니다. 여러 HAProxy 인스턴스 전체의 글로벌 제한이 필요하면 이후 `peers` 동기화 또는 외부 Rate Limit 저장소를 추가해야 합니다.
-
-## Architecture
-
-```text
-Client
-  │ TCP 3-way handshake
-  ▼
-HAProxy :443
-  │ SNI routing + connection rate limit
-  ├── www.typenull.xyz   ── PROXY v2 ──> www-openresty:443
-  ├── api.typenull.xyz   ── PROXY v2 ──> api-openresty:443
-  └── origin.typenull.xyz ─ PROXY v2 ──> origin-openresty:443
-
-Rust Agent ── Unix Socket ──> HAProxy Runtime API
-```
+## Project Status
 
 현재 **GA(General Availability)** 단계입니다.
 
@@ -57,182 +26,160 @@ Rust Agent ── Unix Socket ──> HAProxy Runtime API
 | Item | Description |
 |---|---|
 | Type | `Infrastructure` |
-| Responsibility | 트래픽 분배, 접근 제어 및 백엔드 상태 관리 |
-| Primary Output | 프록시 구성 및 운영 에이전트 |
-| Target | Pingdom Backend Server |
+| Responsibility | HTTPS 요청 수신, Web/App 라우팅 및 IP별 요청 제한 |
+| Primary Output | Rust 프록시 실행 파일, 컨테이너 및 기존 HAProxy 구성 |
+| Target | Pingdom OpenResty Gateway |
 
 ## Scope
 
 ### Included
 
-- 클라이언트 요청 수신 및 백엔드 분배
-- 클라이언트 단위 요청 속도 제한
-- 정적 IP 기반 접근 차단
-- 백엔드 헬스 체크 및 장애 노드 격리
-- 경로 단위 타임아웃 정책 적용
-- HAProxy Runtime API 기반 상태 조회
+- Rust 기반 TLS 종료와 HTTP/1.1·HTTP/2 요청 전달
+- `X-Client-Type`에 따른 Web/App upstream 선택
+- 실제 TCP 연결 IP에 기반한 프로세스 단위 요청 제한
+- 전달 시 `X-Real-IP`를 실제 TCP peer 주소로 교체
+- 설정 파일 검증, 컨테이너 실행 및 OpenResty 신뢰 경계 실험
+- 기존 HAProxy 설정과 배포 파일 보관
 
-각 요청은 Client와 HAProxy 사이, HAProxy와 backend 사이에서 별도의 TCP 연결을 가집니다. backend는 PROXY protocol v2를 지원하고 원본 주소를 신뢰하도록 구성해야 합니다.
+### Not Included
 
-## Docker
+- TLS 인증서 발급 및 갱신
+- OpenResty의 사용자 인증·권한 검증
+- Pingdom 도메인 비즈니스 로직과 데이터 저장
+- WebSocket 업그레이드와 능동 upstream 헬스 체크
+- 여러 인스턴스 사이의 요청 제한 상태 동기화
 
-```bash
-docker compose up -d --build
-```
+## Key Capabilities
 
-HAProxy는 호스트의 `443` 포트를 사용하고, 통계 페이지는 `127.0.0.1:8404/stats`로만 노출합니다. Runtime API 소켓은 `haproxy-runtime` Docker volume으로 Rust Agent와 공유합니다.
+- **HTTPS Entry**: 호스트에 준비된 인증서를 읽어 TLS 요청을 처리합니다.
+- **Web/App Routing**: 라우팅 헤더에 따라 OpenResty upstream을 선택합니다. 인증은 OpenResty에서 수행합니다.
+- **Streaming Proxy**: 요청·응답 본문을 스트리밍하며 애플리케이션 헤더를 전달합니다.
+- **Rate Limit**: IP별 시간 구간 요청 수와 반복 초과 이력에 따라 `429` 및 임시 차단을 적용합니다.
+- **Real IP**: 클라이언트가 보낸 `X-Real-IP`를 TCP peer 주소로 교체합니다.
 
-Backend 서비스는 같은 Docker network(`pingdom-edge`)에 다음 DNS 이름으로 연결되어야 합니다.
+## Technology and Tools
 
-| Hostname | Domain | Port |
-|---|---|---:|
-| `www-openresty` | `www.typenull.xyz` | 443 |
-| `api-openresty` | `api.typenull.xyz` | 443 |
-| `origin-openresty` | `origin.typenull.xyz` | 443 |
-
-실제 OpenResty 또는 Origin 배포 환경에서 이 이름을 사용할 수 없다면 [haproxy/haproxy.cfg](haproxy/haproxy.cfg)의 backend 주소를 해당 DNS 이름으로 변경해야 합니다.
-
-## TLS and Real IP
-
-HAProxy는 현재 TLS Passthrough를 사용합니다. 따라서 인증서는 HAProxy가 아니라 backend에서 관리합니다. HAProxy가 전달하는 PROXY protocol v2를 OpenResty에서 활성화해야 합니다.
-
-OpenResty 예시:
-
-```nginx
-listen 443 ssl proxy_protocol;
-
-set_real_ip_from <haproxy-network-cidr>;
-real_ip_header proxy_protocol;
-```
-
-HAProxy에서 TLS를 종료하는 구성이 필요해지면 `mode tcp`를 HTTP/TLS frontend로 분리하고 인증서와 SNI 정책을 별도로 추가해야 합니다.
-
-## Rate Limit
-
-현재 설정은 모든 도메인에 공유되는 IP별 연결 Rate Limit을 사용합니다.
-
-```text
-10초 동안 IP당 100개 초과 연결 거부
-```
-
-
-L4 Passthrough 구조에서는 HTTP 요청 수가 아니라 TCP 연결 수를 제한합니다. 여러 HAProxy 노드 전체에 동일한 한도를 적용하려면 노드 간 stick table 동기화가 필요합니다.
-프록시는 호스트의 `80`, `443` 포트로 요청을 수신합니다. HTTP 요청은 HTTPS로
-리다이렉트하며, 통계 페이지는 루프백에 한해
-`127.0.0.1:8404`로 노출됩니다.
-
-프록시 구성 파일은 볼륨 마운트가 아니라 이미지 빌드 시 `COPY`로 포함됩니다.
-따라서 `haproxy/haproxy.cfg`를 수정한 경우 재빌드가 필요합니다.
-
-차단 IP 목록은 `haproxy/acl` 디렉터리를 읽기 전용으로 마운트합니다.
-
-### TLS 인증서
-
-HAProxy가 읽을 수 있는 PEM bundle을 배포 서버에 준비합니다. PEM에는 인증서 체인과
-private key가 함께 있어야 하며 저장소에는 커밋하지 않습니다. 기본 경로는
-`haproxy/certs`이고, 저장소 밖 경로를 사용할 때는 `TLS_CERTIFICATE_DIR`로 지정합니다.
-
-```bash
-TLS_CERTIFICATE_DIR=/etc/pingdom/tls docker compose up -d --build
-```
-
-인증서가 없거나 올바르지 않으면 HAProxy 설정 검증과 컨테이너 시작이 실패합니다.
-인증서 갱신 후에는 새 파일을 읽도록 HAProxy 컨테이너를 재생성합니다.
+| Category | Technology |
+|---|---|
+| Primary | Rust, Cargo workspace |
+| Protocol | TLS, HTTP/1.1, HTTP/2 |
+| Gateway Integration | OpenResty |
+| Legacy | HAProxy 3.2 |
+| Delivery | Docker, Docker Compose, GitHub Actions |
 
 ## Getting Started
 
-이 저장소를 확인하거나 실행하기 위해 필요한 최소 절차입니다.
+### Requirements
 
-## Rust Agent
+- Git, Rust 및 Cargo
+- 컨테이너 실행 시 Linux 호스트와 Docker Compose
+- 기존 TLS 인증서 및 Web/App OpenResty upstream
 
-Rust Agent는 HAProxy Runtime API Unix Socket에 연결해 `show info`와 `show stat`을 5초마다 조회합니다.
-
-로컬 빌드:
+### Setup
 
 ```bash
-cd rust-agent
-cargo run -- --socket /var/run/haproxy/admin.sock --interval 5
+git clone https://github.com/Type-Nu11/pingdom-loadbalancer.git
+cd pingdom-loadbalancer
 ```
 
-Docker 실행 시에는 Compose가 Runtime API socket을 자동으로 공유합니다.
+`configs/edge.toml`의 도메인, 인증서 경로와 upstream을 실행 환경에 맞게 확인합니다.
+
+### Usage
+
+Ubuntu에서 인증서 경로와 `443` 포트 사용 여부를 확인한 뒤 실행합니다.
+
+```bash
+docker compose -f deploy/rust.compose.yml config
+docker compose -f deploy/rust.compose.yml up -d --build
+```
+
+호스트에서 직접 실행하려면 `cargo run --release -p proxy-server -- configs/edge.toml`을 사용합니다.
+
+## Configuration
+
+주요 설정은 [configs/edge.toml](configs/edge.toml)과
+[deploy/rust.compose.yml](deploy/rust.compose.yml)에서 관리합니다.
+
+- 기본 도메인: `www.typenull.xyz`
+- Web upstream: `127.0.0.1:8081`, App upstream: `127.0.0.1:8082`
+- 기본 제한: IP당 10초 동안 1,200개 요청, 60초 안에 세 구간에서 초과하면 10초 차단
+- 상태는 단일 프로세스 메모리에 보관하며 재시작 시 초기화
+- 인증서는 `/etc/letsencrypt`를 읽기 전용으로 마운트하며 다른 경로는 `TLS_CERT_DIR`로 지정
+
+인증서와 private key는 저장소에 커밋하지 않습니다. 인증서 발급·갱신은 호스트에서 관리합니다.
+OpenResty의 원본 IP 복원에는 실제 edge 주소에 대한 `set_real_ip_from`과
+`real_ip_header X-Real-IP` 설정이 필요합니다. 상세 조건은 [운영 안내](docs/rust-edge.md)를 참고하세요.
 
 ## Verification
 
-HAProxy 설정 문법을 확인합니다.
+변경 범위에 맞는 검사를 선택합니다. CI의 Rust 도구체인 기준은 `1.98.0`입니다.
 
-```bash
-docker run --rm \
-  -v "$PWD/haproxy:/usr/local/etc/haproxy:ro" \
-  haproxy:3.2-alpine \
-  haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
-```
+| Verification | Purpose |
+|---|---|
+| `cargo +1.98.0 fmt --all -- --check` | Rust 포맷 검사 |
+| `cargo +1.98.0 test --workspace --locked` | workspace 테스트 |
+| `cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings` | 정적 분석 |
+| `cargo +1.98.0 build --release --workspace --locked` | Release 빌드 |
+| `sh tests/openresty/check.sh` | 격리된 Docker 환경의 원본 IP 신뢰 경계 실험 |
 
-Rust Agent를 확인합니다.
-
-```bash
-cargo check --manifest-path rust-agent/Cargo.toml
-```
-
-실행 후 통계를 확인합니다.
-
-```bash
-curl http://127.0.0.1:8404/stats
-```
-
-SNI 라우팅은 실제 인증서와 backend가 준비된 환경에서 확인합니다.
-
-```bash
-openssl s_client -connect 127.0.0.1:443 -servername www.typenull.xyz
-openssl s_client -connect 127.0.0.1:443 -servername api.typenull.xyz
-openssl s_client -connect 127.0.0.1:443 -servername origin.typenull.xyz
-```
+CI는 운영 인증서 접근이나 배포를 수행하지 않습니다. 실제 트래픽 임계값과 운영 TLS·라우팅 검증은 별도로 기록합니다.
 
 ## Repository Structure
 
 ```text
 .
-├── README.md
-├── Dockerfile
-├── compose.yml
-├── haproxy
-│   └── haproxy.cfg
-└── rust-agent
-    ├── Cargo.toml
-    ├── Dockerfile
-    └── src
-        └── main.rs
+├── Cargo.toml                 # Rust workspace
+├── crates
+│   ├── proxy-config           # 설정 로딩과 검증
+│   ├── proxy-ratelimit        # IP별 요청 제한
+│   └── proxy-server           # HTTPS 프록시 실행
+├── configs/edge.toml          # 도메인, 인증서, upstream 및 제한 정책
+├── deploy
+│   ├── rust.Dockerfile        # Rust 이미지
+│   ├── rust.compose.yml       # Rust 실행 구성
+│   ├── Dockerfile             # 기존 HAProxy 이미지
+│   └── compose.yml            # 기존 HAProxy 실행 구성
+├── haproxy/haproxy.cfg        # 기존 HAProxy 설정
+├── docs/rust-edge.md          # Rust 운영 안내
+├── tests/openresty            # 원본 IP 신뢰 경계 실험
+└── README.md
 ```
 
-실제 구조를 기준으로 주요 디렉터리와 파일만 설명합니다.
-
-`StatsParser`와 `BlockManager`는 현재 기본 빌드 대상에 포함되어 있지 않으며,
-별도 구성으로 관리합니다.
+기존 HAProxy 파일은 Rust 구성과 별도로 남아 있습니다. 이전 README가 참조하던
+`rust-agent/`와 루트 `compose.yml`·`Dockerfile`은 현재 트리에 없습니다.
+기존 HAProxy를 사용할 경우 해당 구성과 인증서·backend 조건을 별도로 검토해야 합니다.
 
 ## Related Repositories
 
 | Repository | Relationship |
 |---|---|
-| Pingdom Backend Server | 프록시 요청 전달 대상 |
-| [Pingdom MCP Server](https://github.com/Type-Nu11/pingdom-mcp) | Backend Server 연동 AI 처리 계층 |
-| Pingdom Infrastructure | 서비스 배포 및 운영 환경 관리 |
-
-공개되어 있거나 접근 가능한 저장소만 연결합니다.
+| [pingdom-api](https://github.com/Type-Nu11/pingdom-api) | 프록시를 거쳐 도달하는 핵심 API |
+| [pingdom-infra](https://github.com/Type-Nu11/pingdom-infra) | Rust edge가 요청을 전달하는 OpenResty Gateway |
+| [pingdom-mcp](https://github.com/Type-Nu11/pingdom-mcp) | Gateway와 Backend가 연동하는 MCP 서비스 |
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| - | 별도 공개 문서 없음 |
+| [Rust Edge](docs/rust-edge.md) | 구성, TLS, 요청 제한과 운영 조건 |
+| [OpenResty Trust Test](tests/openresty/README.md) | 원본 IP 헤더의 신뢰 경계 검증 |
 
 ## Release and Compatibility
 
-현재 버전은 GA(General Availability) 단계입니다.
+변경사항은 저장소의 Release 또는 Git 변경 이력을 기준으로 확인합니다.
+호환성에 영향을 주는 변경사항은 관련 문서와 변경 이력을 통해 안내합니다.
 
-호환성에 영향을 주는 변경사항은 Release와 관련 문서를 통해 안내합니다.
-변경사항은 저장소의 Release 또는 변경 이력을 기준으로 확인합니다.
+Rust edge와 기존 HAProxy는 실행 파일과 설정이 다릅니다. 배포 전 선택한 구성의 도메인,
+포트, 인증서 및 upstream 조건을 확인합니다.
 
 ## License
 
-MIT License. 자세한 내용은 [LICENSE](LICENSE)를 참고하세요.
+이 프로젝트의 사용 및 배포 조건은 [MIT License](LICENSE)를 따릅니다.
 
-Part of Pingdom.
+---
+
+<div align="center">
+
+Part of **Pingdom**
+
+</div>
